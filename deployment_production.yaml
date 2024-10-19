@@ -10,12 +10,17 @@ Resources:
         S3Bucket: s3-jenkins-lambda2
         S3Key: lambda_function.zip
 
+  LambdaVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName: !Ref LambdaFunction
+
   LambdaAlias:
     Type: AWS::Lambda::Alias
     Properties:
       FunctionName: !Ref LambdaFunction
       Name: blue-green-lambda
-      FunctionVersion: !GetAtt LambdaFunction.Version
+      FunctionVersion: !Ref LambdaVersion
 
   CodeDeployApplication:
     Type: AWS::CodeDeploy::Application

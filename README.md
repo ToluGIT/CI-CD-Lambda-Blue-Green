@@ -2,6 +2,7 @@
 
 This repository demonstrates a **CI/CD pipeline** for deploying AWS Lambda functions using **Jenkins**. The project implements a **blue-green deployment strategy** to ensure zero-downtime releases and safe rollbacks. It integrates with multiple AWS services such as **S3, Lambda, CloudFormation, CodeDeploy, and SNS** and sends notifications to **Slack** upon successful deployment.
 
+ **Note** - currently in use is 'LambdaAllAtOnce', configuration can be tweaked to support other deployment Strategies.
 ---
 
 ## Project Overview

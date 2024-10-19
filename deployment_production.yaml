@@ -1,0 +1,33 @@
+Resources:
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: blue-green-lambda
+      Handler: lambda_function.lambda_handler
+      Role: arn:aws:iam::730335251706:role/service-role/jenkins-lambd2-role-uyhhqxim
+      Runtime: python3.8
+      Code:
+        S3Bucket: s3-jenkins-lambda2
+        S3Key: lambda_function.zip
+
+  LambdaAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref LambdaFunction
+      Name: blue-green-lambda
+      FunctionVersion: !GetAtt LambdaFunction.Version
+
+  CodeDeployApplication:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ComputePlatform: Lambda
+
+  CodeDeployDeploymentGroup:
+    Type: AWS::CodeDeploy::DeploymentGroup
+    Properties:
+      ApplicationName: !Ref CodeDeployApplication
+      DeploymentConfigName: CodeDeployDefault.LambdaAllAtOnce
+      ServiceRoleArn: arn:aws:iam::730335251706:role/Jenkins-Lambda
+      Alias: !Ref LambdaAlias
+      DeploymentStyle:
+        DeploymentType: BLUE_GREEN

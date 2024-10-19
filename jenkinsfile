@@ -1,0 +1,105 @@
+pipeline {
+    agent any
+
+    environment {
+        IMAGE_NAME = 'lambda_function.zip'
+        BUCKET_NAME = 's3-jenkins-lambda'
+        LAMBDA_FUNCTION_NAME = 'blue-green-lambda'
+        SNS_TOPIC_ARN = credentials('sns-topic-arn')
+        AWS_DEFAULT_REGION = 'us-east-1'
+    }
+
+    stages {
+        stage('Checkout Code') {
+            steps {
+                git branch: 'main', url: 'https://github.com/ToluGIT/testlambda.git'
+            }
+        }
+
+        stage('Build Lambda Package') {
+            steps {
+                sh 'zip lambda_function.zip lambda_function.py'
+            }
+        }
+
+        stage('Upload to S3') {
+            steps {
+                withCredentials([
+                    aws(accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY', credentialsId: 'aws')
+                ]) {
+                    sh """
+                        aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+                        aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+                        aws configure set region us-east-1
+
+                        aws s3 cp lambda_function.zip s3://${BUCKET_NAME}/lambda_function.zip
+                    """
+                }
+            }
+        }
+        
+        stage('Deploy to Lambda') {
+            steps {
+                withCredentials([aws(accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY', credentialsId: 'aws')]) {
+                    script {
+                        def deploymentExists = sh(
+                            script: "aws lambda get-alias --function-name ${LAMBDA_FUNCTION_NAME} --name blue-green-lambda",
+                            returnStatus: true
+                        )
+
+                        if (deploymentExists == 0) {
+                            echo 'Updating existing Lambda function...'
+                            sh """
+                                aws lambda update-function-code \
+                                    --function-name ${LAMBDA_FUNCTION_NAME} \
+                                    --s3-bucket ${BUCKET_NAME} \
+                                    --s3-key lambda_function.zip
+                            """
+                            sh "aws lambda publish-version --function-name ${LAMBDA_FUNCTION_NAME}"
+                            sh """
+                                aws lambda update-alias \
+                                    --function-name ${LAMBDA_FUNCTION_NAME} \
+                                    --name blue-green-lambda \
+                                    --function-version '$LATEST'
+                            """
+                        } else {
+                            echo 'Creating new Lambda function...'
+                            sh """
+                                aws cloudformation deploy --template-file deployment_production.yaml \
+                                    --stack-name lambda-blue-green-stack \
+                                    --capabilities CAPABILITY_NAMED_IAM
+                            """
+                        }
+                    }
+                }
+            }
+        }
+        stage('Blue-Green Traffic Shift') {
+            steps {
+                withCredentials([aws(accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY', credentialsId: 'aws')]) {
+                    sh """
+                        aws deploy create-deployment \
+                            --application-name blue-green-lambda \
+                            --deployment-group-name blue-green-deployment-group \
+                            --deployment-config-name CodeDeployDefault.LambdaAllAtOnce \
+                            --s3-location bucket=${BUCKET_NAME},key=lambda_function.zip,bundleType=zip
+                    """
+                }
+            }
+        }
+
+        stage('Notify') {
+            steps {
+                script {
+                    sh """
+                    aws sns publish --topic-arn $SNS_TOPIC_ARN \
+                    --message 'Lambda function deployed successfully!'
+                    """
+                    echo 'SNS notification sent.'
+
+                    slackSend channel: "${SLACK_CHANNEL}", message: "Lambda function deployed successfully!"
+                }
+            }
+        }
+    }
+}

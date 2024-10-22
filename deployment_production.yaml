@@ -27,6 +27,7 @@ Resources:
   CodeDeployApplication:
     Type: AWS::CodeDeploy::Application
     Properties:
+      ApplicationName: blue-green-lambda
       ComputePlatform: Lambda
 
   CodeDeployDeploymentGroup:

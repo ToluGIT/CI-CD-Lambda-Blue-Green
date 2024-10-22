@@ -79,7 +79,7 @@ pipeline {
                 withCredentials([aws(accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY', credentialsId: 'aws')]) {
                     sh """
                             aws deploy create-deployment \
-                                --application-name lambda-blue-green-stack-CodeDeployApplication-F7ph7TNJ9M4o \
+                                --application-name blue-green-lambda \
                                 --deployment-group-name blue-green-deployment-group \
                                 --deployment-config-name CodeDeployDefault.LambdaAllAtOnce \
                                 --deployment-style deploymentType=BLUE_GREEN,deploymentOption=WITH_TRAFFIC_CONTROL \

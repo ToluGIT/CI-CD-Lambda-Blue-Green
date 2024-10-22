@@ -12,6 +12,18 @@ Resources:
         S3Bucket: s3-jenkins-lambda
         S3Key: lambda_function.zip
 
+  LambdaVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName: !Ref LambdaFunction
+
+  LambdaAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      Name: live
+      FunctionName: !Ref LambdaFunction
+      FunctionVersion: !GetAtt LambdaVersion.Version
+
   CodeDeployApplication:
     Type: AWS::CodeDeploy::Application
     Properties:
@@ -26,6 +38,8 @@ Resources:
       DeploymentStyle:
         DeploymentType: BLUE_GREEN
         DeploymentOption: WITH_TRAFFIC_CONTROL
+      Alias:
+        Name: live
       BlueGreenDeploymentConfiguration:
         TerminateBlueInstancesOnDeploymentSuccess:
           Action: TERMINATE
@@ -34,6 +48,3 @@ Resources:
         Enabled: true
         Events:
           - DEPLOYMENT_FAILURE
-      Alias:
-        Name: live
-        FunctionVersion: !GetAtt LambdaFunction.Version

@@ -82,7 +82,9 @@ pipeline {
                             --application-name blue-green-lambda \
                             --deployment-group-name blue-green-deployment-group \
                             --deployment-config-name CodeDeployDefault.LambdaAllAtOnce \
+                            --deployment-style deploymentType=BLUE_GREEN,deploymentOption=WITH_TRAFFIC_CONTROL \
                             --s3-location bucket=${BUCKET_NAME},key=lambda_function.zip,bundleType=zip
+
                     """
                 }
             }

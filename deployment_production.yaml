@@ -21,8 +21,8 @@ Resources:
     Type: AWS::CodeDeploy::DeploymentGroup
     Properties:
       ApplicationName: !Ref CodeDeployApplication
-      DeploymentConfigName: CodeDeployDefault.LambdaAllAtOnce
       ServiceRoleArn: arn:aws:iam::221082197153:role/testerole
+      DeploymentConfigName: CodeDeployDefault.LambdaAllAtOnce
       DeploymentStyle:
         DeploymentType: BLUE_GREEN
         DeploymentOption: WITH_TRAFFIC_CONTROL
@@ -30,16 +30,10 @@ Resources:
         TerminateBlueInstancesOnDeploymentSuccess:
           Action: TERMINATE
           TerminationWaitTimeInMinutes: 5
-      AlarmConfiguration:
-        Alarms:
-          - Name: LambdaDeploymentAlarm
-        Enabled: true
-        IgnorePollAlarmFailure: false
       AutoRollbackConfiguration:
         Enabled: true
         Events:
           - DEPLOYMENT_FAILURE
-      LoadBalancerInfo:
-        TargetGroupPairInfoList:
-          - TargetGroups:
-              - Name: blue-green-lambda-target
+      Alias:
+        Name: live
+        FunctionVersion: !GetAtt LambdaFunction.Version

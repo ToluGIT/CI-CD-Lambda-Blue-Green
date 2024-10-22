@@ -30,12 +30,16 @@ Resources:
         TerminateBlueInstancesOnDeploymentSuccess:
           Action: TERMINATE
           TerminationWaitTimeInMinutes: 5
+      AlarmConfiguration:
+        Alarms:
+          - Name: LambdaDeploymentAlarm
+        Enabled: true
+        IgnorePollAlarmFailure: false
+      AutoRollbackConfiguration:
+        Enabled: true
+        Events:
+          - DEPLOYMENT_FAILURE
       LoadBalancerInfo:
         TargetGroupPairInfoList:
           - TargetGroups:
               - Name: blue-green-lambda-target
-      TrafficRoutingConfig:
-        Type: TimeBasedCanary
-        TimeBasedCanary:
-          CanaryPercentage: 10
-          CanaryInterval: 5

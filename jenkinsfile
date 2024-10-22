@@ -9,6 +9,10 @@ pipeline {
         CODEDEPLOY_APPLICATION_NAME = 'blue-green-lambda'
         SNS_TOPIC_ARN = credentials('sns-topic-arn')
         AWS_DEFAULT_REGION = 'us-east-1'
+
+        // Added environment variables for IAM role ARNs
+        LAMBDA_EXECUTION_ROLE_ARN = credentials('lambda-execution-role-arn')
+        CODEDEPLOY_SERVICE_ROLE_ARN = credentials('codedeploy-service-role-arn')
     }
 
     stages {
@@ -26,17 +30,23 @@ pipeline {
 
         stage('Upload to S3') {
             steps {
-                withCredentials([aws(accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY', credentialsId: 'aws')]) {
-                    sh """
-                        aws s3 cp lambda_function.zip s3://${BUCKET_NAME}/lambda_function.zip
-                    """
+                withCredentials([aws(credentialsId: 'aws', accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    script {
+                        def uploadResult = sh(
+                            script: "aws s3 cp lambda_function.zip s3://${BUCKET_NAME}/lambda_function.zip",
+                            returnStatus: true
+                        )
+                        if (uploadResult != 0) {
+                            error 'Failed to upload Lambda package to S3.'
+                        }
+                    }
                 }
             }
         }
 
         stage('Deploy to Lambda') {
             steps {
-                withCredentials([aws(accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY', credentialsId: 'aws')]) {
+                withCredentials([aws(credentialsId: 'aws', accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     script {
                         def aliasExists = sh(
                             script: "aws lambda get-alias --function-name ${LAMBDA_FUNCTION_NAME} --name live",
@@ -44,28 +54,60 @@ pipeline {
                         ) == 0
 
                         if (aliasExists) {
-                            echo 'Updating existing Lambda alias...'
-                            sh """
-                                aws lambda update-function-code \
-                                    --function-name ${LAMBDA_FUNCTION_NAME} \
-                                    --s3-bucket ${BUCKET_NAME} \
-                                    --s3-key lambda_function.zip
-                            """
-                            sh "aws lambda publish-version --function-name ${LAMBDA_FUNCTION_NAME}"
-                            sh """
-                                aws lambda update-alias \
-                                    --function-name ${LAMBDA_FUNCTION_NAME} \
-                                    --name live \
-                                    --function-version '\$LATEST'
-                            """
+                            echo 'Updating existing Lambda function and alias...'
+                            def updateResult = sh(
+                                script: """
+                                    aws lambda update-function-code \
+                                        --function-name ${LAMBDA_FUNCTION_NAME} \
+                                        --s3-bucket ${BUCKET_NAME} \
+                                        --s3-key lambda_function.zip
+                                """,
+                                returnStatus: true
+                            )
+                            if (updateResult != 0) {
+                                error 'Failed to update Lambda function code.'
+                            }
+
+                            def version = sh(
+                                script: "aws lambda publish-version --function-name ${LAMBDA_FUNCTION_NAME} --query Version --output text",
+                                returnStdout: true
+                            ).trim()
+                            echo "Published new Lambda version: ${version}"
+
+                            def aliasUpdateResult = sh(
+                                script: """
+                                    aws lambda update-alias \
+                                        --function-name ${LAMBDA_FUNCTION_NAME} \
+                                        --name live \
+                                        --function-version '${version}'
+                                """,
+                                returnStatus: true
+                            )
+                            if (aliasUpdateResult != 0) {
+                                error 'Failed to update Lambda alias.'
+                            }
                         } else {
-                            echo 'Creating new Lambda alias...'
-                            sh """
-                                aws cloudformation deploy \
-                                    --template-file deployment_production.yaml \
-                                    --stack-name lambda-blue-green-stack \
-                                    --capabilities CAPABILITY_NAMED_IAM
-                            """
+                            echo 'Creating new Lambda function, alias, and CodeDeploy resources...'
+                            def deployResult = sh(
+                                script: """
+                                    aws cloudformation deploy \
+                                        --template-file deployment.yaml \
+                                        --stack-name lambda-blue-green-stack \
+                                        --capabilities CAPABILITY_NAMED_IAM \
+                                        --parameter-overrides \
+                                            LambdaExecutionRoleArn=${LAMBDA_EXECUTION_ROLE_ARN} \
+                                            CodeDeployServiceRoleArn=${CODEDEPLOY_SERVICE_ROLE_ARN} \
+                                            LambdaFunctionName=${LAMBDA_FUNCTION_NAME} \
+                                            CodeDeployApplicationName=${CODEDEPLOY_APPLICATION_NAME} \
+                                            DeploymentGroupName=${DEPLOYMENT_GROUP_NAME} \
+                                            S3BucketName=${BUCKET_NAME} \
+                                            S3Key=lambda_function.zip
+                                """,
+                                returnStatus: true
+                            )
+                            if (deployResult != 0) {
+                                error 'Failed to deploy CloudFormation stack.'
+                            }
                         }
                     }
                 }
@@ -74,14 +116,22 @@ pipeline {
 
         stage('Blue-Green Traffic Shift') {
             steps {
-                withCredentials([aws(accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY', credentialsId: 'aws')]) {
-                    sh """
-                        aws deploy create-deployment \
-                            --application-name blue-green-lambda \
-                            --deployment-group-name blue-green-deployment-group \
-                            --deployment-config-name CodeDeployDefault.LambdaAllAtOnce \
-                            --s3-location bucket=${BUCKET_NAME},key=lambda_function.zip,bundleType=zip
-                    """
+                withCredentials([aws(credentialsId: 'aws', accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    script {
+                        def deployResult = sh(
+                            script: """
+                                aws deploy create-deployment \
+                                    --application-name ${CODEDEPLOY_APPLICATION_NAME} \
+                                    --deployment-group-name ${DEPLOYMENT_GROUP_NAME} \
+                                    --deployment-config-name CodeDeployDefault.LambdaAllAtOnce \
+                                    --s3-location bucket=${BUCKET_NAME},key=lambda_function.zip,bundleType=zip
+                            """,
+                            returnStatus: true
+                        )
+                        if (deployResult != 0) {
+                            error 'Failed to create CodeDeploy deployment.'
+                        }
+                    }
                 }
             }
         }
@@ -89,11 +139,18 @@ pipeline {
         stage('Notify via SNS') {
             steps {
                 script {
-                    sh """
-                        aws sns publish --topic-arn $SNS_TOPIC_ARN \
-                        --message 'Lambda function deployed successfully!'
-                    """
-                    echo 'SNS notification sent.'
+                    def snsResult = sh(
+                        script: """
+                            aws sns publish --topic-arn $SNS_TOPIC_ARN \
+                            --message 'Lambda function deployed successfully!'
+                        """,
+                        returnStatus: true
+                    )
+                    if (snsResult != 0) {
+                        echo 'Failed to send SNS notification.'
+                    } else {
+                        echo 'SNS notification sent.'
+                    }
                 }
             }
         }

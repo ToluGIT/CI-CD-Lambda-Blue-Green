@@ -1,4 +1,10 @@
 Resources:
+  CodeDeployApplication:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ApplicationName: blue-green-lambda
+      ComputePlatform: Lambda
+
   LambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -24,16 +30,11 @@ Resources:
       FunctionName: !Ref LambdaFunction
       FunctionVersion: !GetAtt LambdaVersion.Version
 
-  CodeDeployApplication:
-    Type: AWS::CodeDeploy::Application
-    Properties:
-      ApplicationName: blue-green-lambda
-      ComputePlatform: Lambda
-
   CodeDeployDeploymentGroup:
     Type: AWS::CodeDeploy::DeploymentGroup
     Properties:
       ApplicationName: !Ref CodeDeployApplication
+      DeploymentGroupName: blue-green-deployment-group
       ServiceRoleArn: arn:aws:iam::221082197153:role/testerole
       DeploymentConfigName: CodeDeployDefault.LambdaAllAtOnce
       DeploymentStyle:

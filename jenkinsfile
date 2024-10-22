@@ -49,7 +49,7 @@ pipeline {
             }
         }
 
-        stage('Notify') {
+        stage('Notify via SNS') {
             steps {
                 script {
                     sh """

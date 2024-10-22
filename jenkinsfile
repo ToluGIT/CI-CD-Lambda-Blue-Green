@@ -24,7 +24,7 @@ pipeline {
 
         stage('Build Lambda Package') {
             steps {
-                sh 'zip lambda_function.zip lambda_function.py'
+                sh 'zip lambda_function.zip lambda_function.py appspec.yaml'
             }
         }
 

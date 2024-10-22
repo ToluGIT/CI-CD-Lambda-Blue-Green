@@ -56,7 +56,7 @@ pipeline {
                                 aws lambda update-alias \
                                     --function-name ${LAMBDA_FUNCTION_NAME} \
                                     --name live \
-                                    --function-version '$LATEST'
+                                    --function-version '\$LATEST'
                             """
                         } else {
                             echo 'Creating new Lambda alias...'

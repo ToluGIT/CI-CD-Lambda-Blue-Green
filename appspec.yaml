@@ -5,3 +5,5 @@ Resources:
       Properties:
         Name: "blue-green-lambda"
         Alias: "live"
+        CurrentVersion: "{{CURRENT_VERSION}}"
+        TargetVersion: "{{TARGET_VERSION}}"

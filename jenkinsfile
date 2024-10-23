@@ -22,6 +22,12 @@ pipeline {
             }
         }
 
+        stage('Verify Zip Contents') {
+            steps {
+                  sh 'unzip -l lambda_function.zip'
+            }
+        }
+
         stage('Build Lambda Package') {
             steps {
                 sh 'zip lambda_function.zip lambda_function.py appspec.yaml'

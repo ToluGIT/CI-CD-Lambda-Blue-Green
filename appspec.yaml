@@ -1,0 +1,7 @@
+version: 0.0
+Resources:
+  - blueGreenLambdaFunction:
+      Type: AWS::Lambda::Function
+      Properties:
+        Name: "blue-green-lambda"
+        Alias: "live"

@@ -10,8 +10,6 @@ pipeline {
         CODEDEPLOY_APPLICATION_NAME = 'blue-green-lambda'
         SNS_TOPIC_ARN = credentials('sns-topic-arn')
         AWS_DEFAULT_REGION = 'us-east-1'
-
-        // IAM role ARNs stored securely in Jenkins credentials
         LAMBDA_EXECUTION_ROLE_ARN = credentials('lambda-execution-role-arn')
         CODEDEPLOY_SERVICE_ROLE_ARN = credentials('codedeploy-service-role-arn')
     }

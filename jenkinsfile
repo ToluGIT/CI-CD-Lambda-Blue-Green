@@ -2,6 +2,7 @@ pipeline {
     agent any
 
     environment {
+        // AWS and application-specific environment variables
         IMAGE_NAME = 'lambda_function.zip'
         BUCKET_NAME = 's3-jenkins-lambda'
         LAMBDA_FUNCTION_NAME = 'blue-green-lambda'
@@ -10,32 +11,43 @@ pipeline {
         SNS_TOPIC_ARN = credentials('sns-topic-arn')
         AWS_DEFAULT_REGION = 'us-east-1'
 
-        // Added environment variables for IAM role ARNs
+        // IAM role ARNs stored securely in Jenkins credentials
         LAMBDA_EXECUTION_ROLE_ARN = credentials('lambda-execution-role-arn')
         CODEDEPLOY_SERVICE_ROLE_ARN = credentials('codedeploy-service-role-arn')
     }
 
     stages {
+        stage('Cleanup Workspace') {
+            steps {
+                // Clean the workspace to prevent old artifacts from interfering
+                deleteDir()
+            }
+        }
+
         stage('Checkout Code') {
             steps {
+                // Clone the repository containing your Lambda function and appspec.yaml
                 git branch: 'main', url: 'https://github.com/ToluGIT/testlambda.git'
             }
         }
 
         stage('Build Lambda Package') {
             steps {
+                // Package the Lambda function code and appspec.yaml into a zip file
                 sh 'zip lambda_function.zip lambda_function.py appspec.yaml'
             }
         }
 
         stage('Verify Zip Contents') {
             steps {
-                  sh 'unzip -l lambda_function.zip'
+                // List the contents of the zip file to verify inclusion of all necessary files
+                sh 'unzip -l lambda_function.zip'
             }
         }
 
         stage('Upload to S3') {
             steps {
+                // Upload the zip file to S3
                 withCredentials([aws(credentialsId: 'aws', accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     script {
                         def uploadResult = sh(
@@ -44,6 +56,8 @@ pipeline {
                         )
                         if (uploadResult != 0) {
                             error 'Failed to upload Lambda package to S3.'
+                        } else {
+                            echo 'Lambda package uploaded to S3 successfully.'
                         }
                     }
                 }
@@ -52,6 +66,7 @@ pipeline {
 
         stage('Deploy to Lambda') {
             steps {
+                // Deploy the Lambda function and update the alias
                 withCredentials([aws(credentialsId: 'aws', accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     script {
                         def aliasExists = sh(
@@ -61,6 +76,8 @@ pipeline {
 
                         if (aliasExists) {
                             echo 'Updating existing Lambda function and alias...'
+
+                            // Update the Lambda function code from S3
                             def updateResult = sh(
                                 script: """
                                     aws lambda update-function-code \
@@ -72,32 +89,20 @@ pipeline {
                             )
                             if (updateResult != 0) {
                                 error 'Failed to update Lambda function code.'
+                            } else {
+                                echo 'Lambda function code updated successfully.'
                             }
 
-                            def version = sh(
-                                script: "aws lambda publish-version --function-name ${LAMBDA_FUNCTION_NAME} --query Version --output text",
-                                returnStdout: true
-                            ).trim()
-                            echo "Published new Lambda version: ${version}"
-
-                            def aliasUpdateResult = sh(
-                                script: """
-                                    aws lambda update-alias \
-                                        --function-name ${LAMBDA_FUNCTION_NAME} \
-                                        --name live \
-                                        --function-version '${version}'
-                                """,
-                                returnStatus: true
-                            )
-                            if (aliasUpdateResult != 0) {
-                                error 'Failed to update Lambda alias.'
-                            }
+                            // Set flag to indicate it's not the initial deployment
+                            env.INITIAL_DEPLOYMENT = 'false'
                         } else {
                             echo 'Creating new Lambda function, alias, and CodeDeploy resources...'
+
+                            // Deploy the CloudFormation stack to create the necessary resources
                             def deployResult = sh(
                                 script: """
                                     aws cloudformation deploy \
-                                        --template-file deployment_production.yaml \
+                                        --template-file deployment.yaml \
                                         --stack-name lambda-blue-green-stack \
                                         --capabilities CAPABILITY_NAMED_IAM \
                                         --parameter-overrides \
@@ -113,7 +118,112 @@ pipeline {
                             )
                             if (deployResult != 0) {
                                 error 'Failed to deploy CloudFormation stack.'
+                            } else {
+                                echo 'CloudFormation stack deployed successfully.'
                             }
+
+                            // Set flag to indicate it's the initial deployment
+                            env.INITIAL_DEPLOYMENT = 'true'
+                        }
+                    }
+                }
+            }
+        }
+
+        // Conditionally execute the following stages only if it's not the initial deployment
+        stage('Update AppSpec File') {
+            when {
+                expression {
+                    env.INITIAL_DEPLOYMENT == 'false'
+                }
+            }
+            steps {
+                // Update the appspec.yaml file with the correct CurrentVersion and TargetVersion
+                withCredentials([aws(credentialsId: 'aws', accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    script {
+                        // Retrieve the current version the alias points to
+                        def currentVersion = sh(
+                            script: "aws lambda get-alias --function-name ${LAMBDA_FUNCTION_NAME} --name live --query 'FunctionVersion' --output text",
+                            returnStdout: true
+                        ).trim()
+                        echo "Current Lambda version: ${currentVersion}"
+
+                        // Publish a new version of the Lambda function
+                        def targetVersion = sh(
+                            script: "aws lambda publish-version --function-name ${LAMBDA_FUNCTION_NAME} --query Version --output text",
+                            returnStdout: true
+                        ).trim()
+                        echo "Published new Lambda version: ${targetVersion}"
+
+                        // Update the alias to point to the new version
+                        def aliasUpdateResult = sh(
+                            script: """
+                                aws lambda update-alias \
+                                    --function-name ${LAMBDA_FUNCTION_NAME} \
+                                    --name live \
+                                    --function-version '${targetVersion}'
+                            """,
+                            returnStatus: true
+                        )
+                        if (aliasUpdateResult != 0) {
+                            error 'Failed to update Lambda alias.'
+                        } else {
+                            echo 'Lambda alias updated successfully.'
+                        }
+
+                        // Update the appspec.yaml file with the retrieved versions
+                        sh """
+                            sed -i 's/{{CURRENT_VERSION}}/${currentVersion}/g' appspec.yaml
+                            sed -i 's/{{TARGET_VERSION}}/${targetVersion}/g' appspec.yaml
+                        """
+                        echo 'AppSpec file updated with current and target versions.'
+                    }
+                }
+            }
+        }
+
+        stage('Verify AppSpec File') {
+            when {
+                expression {
+                    env.INITIAL_DEPLOYMENT == 'false'
+                }
+            }
+            steps {
+                // Output the contents of the updated appspec.yaml for verification
+                sh 'cat appspec.yaml'
+            }
+        }
+
+        stage('Repackage Lambda Function') {
+            when {
+                expression {
+                    env.INITIAL_DEPLOYMENT == 'false'
+                }
+            }
+            steps {
+                // Repackage the Lambda function with the updated appspec.yaml
+                sh 'zip -u lambda_function.zip appspec.yaml'
+            }
+        }
+
+        stage('Re-upload to S3') {
+            when {
+                expression {
+                    env.INITIAL_DEPLOYMENT == 'false'
+                }
+            }
+            steps {
+                // Re-upload the updated zip file to S3
+                withCredentials([aws(credentialsId: 'aws', accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    script {
+                        def uploadResult = sh(
+                            script: "aws s3 cp lambda_function.zip s3://${BUCKET_NAME}/lambda_function.zip",
+                            returnStatus: true
+                        )
+                        if (uploadResult != 0) {
+                            error 'Failed to re-upload Lambda package to S3.'
+                        } else {
+                            echo 'Updated Lambda package re-uploaded to S3 successfully.'
                         }
                     }
                 }
@@ -122,6 +232,7 @@ pipeline {
 
         stage('Blue-Green Traffic Shift') {
             steps {
+                // Initiate the CodeDeploy deployment to perform the traffic shift
                 withCredentials([aws(credentialsId: 'aws', accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     script {
                         def deployResult = sh(
@@ -136,6 +247,8 @@ pipeline {
                         )
                         if (deployResult != 0) {
                             error 'Failed to create CodeDeploy deployment.'
+                        } else {
+                            echo 'CodeDeploy deployment created successfully.'
                         }
                     }
                 }
@@ -144,6 +257,7 @@ pipeline {
 
         stage('Notify via SNS') {
             steps {
+                // Send a notification via SNS upon successful deployment
                 script {
                     def snsResult = sh(
                         script: """
@@ -155,7 +269,7 @@ pipeline {
                     if (snsResult != 0) {
                         echo 'Failed to send SNS notification.'
                     } else {
-                        echo 'SNS notification sent.'
+                        echo 'SNS notification sent successfully.'
                     }
                 }
             }

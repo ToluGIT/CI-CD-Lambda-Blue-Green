@@ -102,7 +102,7 @@ pipeline {
                             def deployResult = sh(
                                 script: """
                                     aws cloudformation deploy \
-                                        --template-file deployment.yaml \
+                                        --template-file deployment_production.yaml \
                                         --stack-name lambda-blue-green-stack \
                                         --capabilities CAPABILITY_NAMED_IAM \
                                         --parameter-overrides \

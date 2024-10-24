@@ -24,7 +24,7 @@ pipeline {
 
         stage('Checkout Code') {
             steps {
-                git branch: 'main', url: 'https://github.com/YourUsername/YourRepository.git'
+                sh 'sleep 10'
             }
         }
 

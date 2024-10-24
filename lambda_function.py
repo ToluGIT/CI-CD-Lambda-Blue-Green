@@ -1,9 +1,9 @@
-import json
+import random
 
 def lambda_handler(event, context):
-    # Hardcoded credentials (Insecure)
-    db_password = "SuperSecretPassword123"
-    print("Accessing database with password:", db_password)
+    # Insecure random number generation
+    token = random.random()
+    print("Generated insecure token:", token)
     
     return {
         'statusCode': 200,

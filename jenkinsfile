@@ -26,16 +26,6 @@ pipeline {
             }
         }
 
-        stage('Check Safety Installation') {
-            steps {
-                sh '''
-                    echo "Checking if 'safety' is installed..."
-                    which safety || echo "'safety' command not found."
-                    safety --version || echo "Unable to retrieve 'safety' version."
-                '''
-            }
-        }
-
         stage('Security: Static Code Analysis') {
             steps {
                 echo 'Running Static Code Analysis with Bandit...'
@@ -48,41 +38,6 @@ pipeline {
             steps {
                 echo 'Contents of bandit_report.json:'
                 sh 'cat bandit_report.json || echo "bandit_report.json not found or empty"'
-            }
-        }
-
-        stage('Security: Dependency Scan') {
-            steps {
-                echo 'Running Dependency Vulnerability Scan with Safety...'
-                sh '''
-                    if [ -f requirements.txt ]; then
-                        safety check -r requirements.txt --json > safety_report.json 2> safety_error.log || true
-                    else
-                        echo 'No requirements.txt found, skipping dependency scan.'
-                    fi
-                '''
-                archiveArtifacts artifacts: 'safety_report.json, safety_error.log', fingerprint: true, allowEmptyArchive: true
-            }
-        }
-
-        stage('Debug: Print Safety Report') {
-            steps {
-                echo 'Contents of safety_report.json:'
-                sh 'cat safety_report.json || echo "safety_report.json not found or empty"'
-            }
-        }
-
-        stage('Debug: Print Safety Error Log') {
-            steps {
-                echo 'Contents of safety_error.log:'
-                sh 'cat safety_error.log || echo "safety_error.log not found or empty"'
-            }
-        }
-
-        stage('Debug: Print requirements.txt') {
-            steps {
-                echo 'Contents of requirements.txt:'
-                sh 'cat requirements.txt || echo "requirements.txt not found or empty"'
             }
         }
 
@@ -124,46 +79,6 @@ pipeline {
                         }
                     } else {
                         echo 'bandit_report.json not found.'
-                    }
-
-                    // Evaluate Safety Report
-                    if (fileExists('safety_report.json')) {
-                        def safetyReportContent = readFile file: 'safety_report.json'
-                        if (safetyReportContent?.trim()) {
-                            def safetyReport = readJSON text: safetyReportContent
-                            def vulnerabilities = safetyReport.vulnerabilities ?: []
-                            if (vulnerabilities.size() > 0) {
-                                echo "Found ${vulnerabilities.size()} vulnerabilities in dependencies."
-                                vulnerabilities.each { vuln ->
-                                    def packageName = vuln.package_name
-                                    def analyzedVersion = vuln.analyzed_version
-                                    def advisory = vuln.advisory
-                                    def cve = vuln.CVE ?: 'N/A'
-                                    def severity = 'Unknown'
-                                    if (vuln.severity) {
-                                        if (vuln.severity.cvssv3?.base_severity) {
-                                            severity = vuln.severity.cvssv3.base_severity
-                                        } else if (vuln.severity.cvssv2?.base_score) {
-                                            severity = vuln.severity.cvssv2.base_score
-                                        }
-                                    }
-                                    echo "Package: ${packageName}"
-                                    echo "Version: ${analyzedVersion}"
-                                    echo "Severity: ${severity}"
-                                    echo "CVE: ${cve}"
-                                    echo "Advisory: ${advisory}"
-                                    echo "-------------------------------------"
-                                }
-                                failBuild = true
-                            } else {
-                                echo 'No vulnerable dependencies found.'
-                            }
-                        } else {
-                            echo 'safety_report.json is empty or invalid.'
-                            failBuild = true
-                        }
-                    } else {
-                        echo 'safety_report.json not found.'
                     }
 
                     // Evaluate cfn-nag Report

@@ -84,7 +84,7 @@ This project demonstrates how to set up a CI/CD pipeline using Jenkins to deploy
 ### **2\. Infrastructure as Code Scanning with cfn-nag**
     
    *   **Tool Used:** [cfn-nag](https://github.com/stelligent/cfn_nag)
-   *   **Purpose:** Analyzes the CloudFormation template (`deployment.yaml`) for security vulnerabilities, such as insecure configurations and permissive policies.
+   *   **Purpose:** Analyzes the CloudFormation template (`deployment_production.yaml`) for security vulnerabilities, such as insecure configurations and permissive policies.
    *   **Integration:** Added as a pipeline stage called **"Security: Infrastructure Scan"**.
 
 ### **3\. Security Report Evaluation**

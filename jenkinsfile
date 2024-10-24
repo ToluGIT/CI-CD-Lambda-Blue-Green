@@ -56,7 +56,7 @@ pipeline {
                 echo 'Running Dependency Vulnerability Scan with Safety...'
                 sh '''
                     if [ -f requirements.txt ]; then
-                        safety check -r requirements.txt --json --full-report > safety_report.json 2> safety_error.log || true
+                        safety check -r requirements.txt --json > safety_report.json 2> safety_error.log || true
                     else
                         echo 'No requirements.txt found, skipping dependency scan.'
                     fi

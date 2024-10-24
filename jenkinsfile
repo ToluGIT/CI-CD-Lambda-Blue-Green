@@ -60,16 +60,17 @@ pipeline {
             steps {
                 script {
                     def failBuild = false
-
+        
                     // Evaluate Bandit Report
                     if (fileExists('bandit_report.json')) {
                         def banditReport = readJSON file: 'bandit_report.json'
-                        if (banditReport.metrics._totals.high > 0) {
-                            echo 'High severity issues found in static code analysis.'
+                        def highSeverityIssues = banditReport.metrics._totals.severity?.HIGH ?: 0
+                        if (highSeverityIssues > 0) {
+                            echo "Found ${highSeverityIssues} high severity issues in static code analysis."
                             failBuild = true
                         }
                     }
-
+        
                     // Evaluate Safety Report
                     if (fileExists('safety_report.json')) {
                         def safetyReport = readJSON file: 'safety_report.json'
@@ -78,12 +79,11 @@ pipeline {
                             failBuild = true
                         }
                     }
-
+        
                     // Evaluate cfn-nag Report
                     if (fileExists('cfn_nag_report.json')) {
                         def cfnNagReport = readJSON file: 'cfn_nag_report.json'
-
-                        // Adjust the code to match the structure of cfnNagReport
+        
                         if (cfnNagReport.file_results) {
                             cfnNagReport.file_results.each { fileResult ->
                                 if (fileResult.file_results && fileResult.file_results.violations) {
@@ -99,7 +99,7 @@ pipeline {
                             echo 'No file_results found in cfn-nag report.'
                         }
                     }
-
+        
                     if (failBuild) {
                         error 'Security checks failed. Please address the issues and retry.'
                     } else {

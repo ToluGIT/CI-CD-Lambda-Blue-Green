@@ -18,13 +18,13 @@ pipeline {
         stage('Cleanup Workspace') {
             steps {
                 // Clean the workspace to prevent old artifacts from interfering
-                sh 'sleep 10'
+                deleteDir()
             }
         }
 
         stage('Checkout Code') {
             steps {
-                sh 'sleep 10'
+                git branch: 'main', url: 'https://github.com/YourUsername/YourRepository.git'
             }
         }
 
@@ -58,6 +58,13 @@ pipeline {
             }
         }
 
+        stage('Debug: Print cfn-nag Report') {
+            steps {
+                echo 'Contents of cfn_nag_report.json:'
+                sh 'cat cfn_nag_report.json || echo "cfn_nag_report.json not found or empty"'
+            }
+        }
+
         stage('Security: Evaluate Reports') {
             steps {
                 script {
@@ -84,13 +91,21 @@ pipeline {
                     // Evaluate cfn-nag Report
                     if (fileExists('cfn_nag_report.json')) {
                         def cfnNagReport = readJSON file: 'cfn_nag_report.json'
-                        cfnNagReport.files.each { file ->
-                            file.failure_results.each { result ->
-                                if (result.level == 'ERROR' || result.level == 'FAIL') {
-                                    echo "Security issues found in CloudFormation template: ${result.id} - ${result.message}"
-                                    failBuild = true
+
+                        // Adjust the code to match the actual structure of cfnNagReport
+                        if (cfnNagReport.file_results) {
+                            cfnNagReport.file_results.each { fileResult ->
+                                if (fileResult.file_results && fileResult.file_results.violations) {
+                                    fileResult.file_results.violations.each { violation ->
+                                        if (violation.type == 'FAIL') {
+                                            echo "Security issues found in CloudFormation template: ${violation.id} - ${violation.message}"
+                                            failBuild = true
+                                        }
+                                    }
                                 }
                             }
+                        } else {
+                            echo 'No file_results found in cfn-nag report.'
                         }
                     }
 
@@ -163,7 +178,7 @@ pipeline {
                             def deployResult = sh(
                                 script: """
                                     aws cloudformation deploy \
-                                        --template-file deployment.yaml \
+                                        --template-file deployment_production.yaml \
                                         --stack-name lambda-blue-green-stack \
                                         --capabilities CAPABILITY_NAMED_IAM \
                                         --parameter-overrides \

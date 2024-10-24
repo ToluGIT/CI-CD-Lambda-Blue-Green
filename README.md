@@ -15,7 +15,8 @@ This project demonstrates how to set up a CI/CD pipeline using Jenkins to deploy
 
 2. **Jenkins Server** with the following plugins installed:
    - AWS Credentials Plugin  
-   - Git Plugin  
+   - Git Plugin
+   - Pipeline: AWS Steps plugin
 
 4. **S3 Bucket** to store the Lambda ZIP file.
    

@@ -34,6 +34,12 @@ pipeline {
             }
         }
 
+        stage('Debug: Print Bandit Report') {
+            steps {
+                echo 'Contents of bandit_report.json:'
+                sh 'cat bandit_report.json || echo "bandit_report.json not found or empty"'
+            }
+        }
         stage('Security: Dependency Scan') {
             steps {
                 echo 'Running Dependency Vulnerability Scan with Safety...'

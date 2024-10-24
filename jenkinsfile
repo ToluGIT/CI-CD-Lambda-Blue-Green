@@ -61,6 +61,13 @@ pipeline {
                 archiveArtifacts artifacts: 'cfn_nag_report.json', fingerprint: true
             }
         }
+        stage('Debug: Print Safety Report') {
+            steps {
+                echo 'Contents of safety_report.json:'
+                sh 'cat safety_report.json || echo "safety_report.json not found or empty"'
+            }
+        }
+
         stage('Security: Evaluate Reports') {
             steps {
                 script {

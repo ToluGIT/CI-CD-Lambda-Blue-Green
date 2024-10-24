@@ -69,7 +69,6 @@ This project demonstrates how to set up a CI/CD pipeline using Jenkins to deploy
     *   A notification is sent to **SNS** upon successful deployment.
 ---
    Security Enhancements
-    ---------------------
     
  This project incorporates DevSecOps practices by integrating security checks into the CI/CD pipeline to ensure that only secure and compliant code is deployed.
     

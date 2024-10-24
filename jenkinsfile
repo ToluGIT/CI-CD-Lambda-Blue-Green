@@ -40,17 +40,25 @@ pipeline {
                 sh 'cat bandit_report.json || echo "bandit_report.json not found or empty"'
             }
         }
+
         stage('Security: Dependency Scan') {
             steps {
                 echo 'Running Dependency Vulnerability Scan with Safety...'
                 sh '''
                     if [ -f requirements.txt ]; then
-                        safety check -r requirements.txt --json > safety_report.json || true
+                        safety check -r requirements.txt --json --full-report > safety_report.json || true
                     else
                         echo 'No requirements.txt found, skipping dependency scan.'
                     fi
                 '''
                 archiveArtifacts artifacts: 'safety_report.json', fingerprint: true, allowEmptyArchive: true
+            }
+        }
+
+        stage('Debug: Print Safety Report') {
+            steps {
+                echo 'Contents of safety_report.json:'
+                sh 'cat safety_report.json || echo "safety_report.json not found or empty"'
             }
         }
 
@@ -61,28 +69,22 @@ pipeline {
                 archiveArtifacts artifacts: 'cfn_nag_report.json', fingerprint: true
             }
         }
-        stage('Debug: Print Safety Report') {
-            steps {
-                echo 'Contents of safety_report.json:'
-                sh 'cat safety_report.json || echo "safety_report.json not found or empty"'
-            }
-        }
 
         stage('Security: Evaluate Reports') {
             steps {
                 script {
                     def failBuild = false
-        
+
                     // Evaluate Bandit Report
                     if (fileExists('bandit_report.json')) {
                         def banditReport = readJSON file: 'bandit_report.json'
                         def totals = banditReport.metrics._totals
                         echo "Bandit Report Metrics Totals: ${totals}"
-        
+
                         // Access 'SEVERITY.HIGH' key
                         def highSeverityIssues = totals['SEVERITY.HIGH'] ?: 0
                         echo "High Severity Issues Found: ${highSeverityIssues}"
-        
+
                         if (highSeverityIssues > 0) {
                             echo "Found ${highSeverityIssues} high severity issues in static code analysis."
                             failBuild = true
@@ -92,20 +94,31 @@ pipeline {
                     } else {
                         echo 'bandit_report.json not found.'
                     }
-        
+
                     // Evaluate Safety Report
                     if (fileExists('safety_report.json')) {
                         def safetyReport = readJSON file: 'safety_report.json'
-                        if (safetyReport.issues.size() > 0) {
-                            echo 'Vulnerable dependencies found.'
+                        def vulnerabilities = safetyReport.vulnerabilities ?: []
+                        if (vulnerabilities.size() > 0) {
+                            echo "Found ${vulnerabilities.size()} vulnerable dependencies."
+                            vulnerabilities.each { dep ->
+                                echo "Dependency '${dep.package_name}' version '${dep.installed_version}' has vulnerabilities:"
+                                dep.vulnerabilities.each { vuln ->
+                                    echo "- [${vuln.severity}] ${vuln.advisory} (CVE: ${vuln.cve})"
+                                }
+                            }
                             failBuild = true
+                        } else {
+                            echo 'No vulnerable dependencies found.'
                         }
+                    } else {
+                        echo 'safety_report.json not found.'
                     }
-        
+
                     // Evaluate cfn-nag Report
                     if (fileExists('cfn_nag_report.json')) {
                         def cfnNagReport = readJSON file: 'cfn_nag_report.json'
-        
+
                         if (cfnNagReport.file_results) {
                             cfnNagReport.file_results.each { fileResult ->
                                 if (fileResult.file_results && fileResult.file_results.violations) {
@@ -121,7 +134,7 @@ pipeline {
                             echo 'No file_results found in cfn-nag report.'
                         }
                     }
-        
+
                     if (failBuild) {
                         error 'Security checks failed. Please address the issues and retry.'
                     } else {
@@ -130,6 +143,8 @@ pipeline {
                 }
             }
         }
+
+        // ... Rest of your stages ...
 
         stage('Build Lambda Package') {
             steps {
@@ -145,184 +160,7 @@ pipeline {
             }
         }
 
-        stage('Deploy to Lambda') {
-            steps {
-                withAWS(credentials: 'aws', region: "${AWS_DEFAULT_REGION}") {
-                    script {
-                        def aliasExists = sh(
-                            script: "aws lambda get-alias --function-name ${LAMBDA_FUNCTION_NAME} --name live",
-                            returnStatus: true
-                        ) == 0
-
-                        if (aliasExists) {
-                            echo 'Updating existing Lambda function...'
-
-                            def updateResult = sh(
-                                script: """
-                                    aws lambda update-function-code \
-                                        --function-name ${LAMBDA_FUNCTION_NAME} \
-                                        --s3-bucket ${BUCKET_NAME} \
-                                        --s3-key lambda_function.zip
-                                """,
-                                returnStatus: true
-                            )
-                            if (updateResult != 0) {
-                                error 'Failed to update Lambda function code.'
-                            } else {
-                                echo 'Lambda function code updated successfully.'
-                            }
-
-                            env.INITIAL_DEPLOYMENT = 'false'
-                        } else {
-                            echo 'Creating new Lambda function, alias, and CodeDeploy resources...'
-
-                            def deployResult = sh(
-                                script: """
-                                    aws cloudformation deploy \
-                                        --template-file deployment_production.yaml \
-                                        --stack-name lambda-blue-green-stack \
-                                        --capabilities CAPABILITY_NAMED_IAM \
-                                        --parameter-overrides \
-                                            LambdaExecutionRoleArn=${LAMBDA_EXECUTION_ROLE_ARN} \
-                                            CodeDeployServiceRoleArn=${CODEDEPLOY_SERVICE_ROLE_ARN} \
-                                            LambdaFunctionName=${LAMBDA_FUNCTION_NAME} \
-                                            CodeDeployApplicationName=${CODEDEPLOY_APPLICATION_NAME} \
-                                            DeploymentGroupName=${DEPLOYMENT_GROUP_NAME} \
-                                            S3BucketName=${BUCKET_NAME} \
-                                            S3Key=lambda_function.zip
-                                """,
-                                returnStatus: true
-                            )
-                            if (deployResult != 0) {
-                                error 'Failed to deploy CloudFormation stack.'
-                            } else {
-                                echo 'CloudFormation stack deployed successfully.'
-                            }
-
-                            env.INITIAL_DEPLOYMENT = 'true'
-                        }
-                    }
-                }
-            }
-        }
-
-        //  execute the following stages only if it's not the initial deployment
-        stage('Update AppSpec File') {
-            when {
-                expression {
-                    env.INITIAL_DEPLOYMENT == 'false'
-                }
-            }
-            steps {
-                // Update the appspec.yaml file with the correct CurrentVersion and TargetVersion
-                withAWS(credentials: 'aws', region: "${AWS_DEFAULT_REGION}") {
-                    script {
-                        // Retrieve the current version the alias points to
-                        def currentVersion = sh(
-                            script: "aws lambda get-alias --function-name ${LAMBDA_FUNCTION_NAME} --name live --query 'FunctionVersion' --output text",
-                            returnStdout: true
-                        ).trim()
-                        echo "Current Lambda version: ${currentVersion}"
-
-                        // Publish a new version of the Lambda function
-                        def targetVersion = sh(
-                            script: "aws lambda publish-version --function-name ${LAMBDA_FUNCTION_NAME} --query Version --output text",
-                            returnStdout: true
-                        ).trim()
-                        echo "Published new Lambda version: ${targetVersion}"
-
-                        // Don't  update the alias here; let CodeDeploy handle it
-                        // Update the appspec.yaml file with the retrieved versions
-                        sh """
-                            sed -i 's/{{CURRENT_VERSION}}/${currentVersion}/g' appspec.yaml
-                            sed -i 's/{{TARGET_VERSION}}/${targetVersion}/g' appspec.yaml
-                        """
-                        echo 'AppSpec file updated with current and target versions.'
-                    }
-                }
-            }
-        }
-
-        stage('Verify AppSpec File') {
-            when {
-                expression {
-                    env.INITIAL_DEPLOYMENT == 'false'
-                }
-            }
-            steps {
-                sh 'cat appspec.yaml'
-            }
-        }
-
-        stage('Repackage Lambda Function') {
-            when {
-                expression {
-                    env.INITIAL_DEPLOYMENT == 'false'
-                }
-            }
-            steps {
-                // Repackage the Lambda function with the updated appspec.yaml
-                sh 'zip -u lambda_function.zip appspec.yaml'
-            }
-        }
-
-        stage('Re-upload to S3') {
-            when {
-                expression {
-                    env.INITIAL_DEPLOYMENT == 'false'
-                }
-            }
-            steps {
-                withAWS(credentials: 'aws', region: "${AWS_DEFAULT_REGION}") {
-                    s3Upload(bucket: "${BUCKET_NAME}", path: 'lambda_function.zip', file: 'lambda_function.zip')
-                }
-            }
-        }
-
-        stage('Blue-Green Traffic Shift') {
-            steps {
-                withAWS(credentials: 'aws', region: "${AWS_DEFAULT_REGION}") {
-                    script {
-                        def deployResult = sh(
-                            script: """
-                                aws deploy create-deployment \
-                                    --application-name ${CODEDEPLOY_APPLICATION_NAME} \
-                                    --deployment-group-name ${DEPLOYMENT_GROUP_NAME} \
-                                    --deployment-config-name CodeDeployDefault.LambdaAllAtOnce \
-                                    --s3-location bucket=${BUCKET_NAME},key=lambda_function.zip,bundleType=zip
-                            """,
-                            returnStatus: true
-                        )
-                        if (deployResult != 0) {
-                            error 'Failed to create CodeDeploy deployment.'
-                        } else {
-                            echo 'CodeDeploy deployment created successfully.'
-                        }
-                    }
-                }
-            }
-        }
-
-        stage('Notify via SNS') {
-            steps {
-                withAWS(credentials: 'aws', region: "${AWS_DEFAULT_REGION}") {
-                    script {
-                        def snsResult = sh(
-                            script: """
-                                aws sns publish --topic-arn $SNS_TOPIC_ARN \
-                                --message 'Lambda function deployed successfully!'
-                            """,
-                            returnStatus: true
-                        )
-                        if (snsResult != 0) {
-                            echo 'Failed to send SNS notification.'
-                        } else {
-                            echo 'SNS notification sent successfully.'
-                        }
-                    }
-                }
-            }
-        }
+        // ... Other stages ...
 
     }
 

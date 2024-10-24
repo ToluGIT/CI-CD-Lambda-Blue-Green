@@ -63,19 +63,25 @@ pipeline {
         }
 
         stage('Security: Evaluate Reports') {
-            steps {
-                script {
-                    def failBuild = false
-        
-                    // Evaluate Bandit Report
-                    if (fileExists('bandit_report.json')) {
-                        def banditReport = readJSON file: 'bandit_report.json'
-                        def highSeverityIssues = banditReport.metrics._totals.severity?.HIGH ?: 0
-                        if (highSeverityIssues > 0) {
-                            echo "Found ${highSeverityIssues} high severity issues in static code analysis."
-                            failBuild = true
+                steps {
+                    script {
+                        def failBuild = false
+            
+                        // Evaluate Bandit Report
+                        if (fileExists('bandit_report.json')) {
+                            def banditReport = readJSON file: 'bandit_report.json'
+                            echo "Bandit Report Metrics: ${banditReport.metrics}"
+                            def highSeverityIssues = banditReport.metrics._totals.severity?.HIGH ?: 0
+                            echo "High Severity Issues Found: ${highSeverityIssues}"
+                            if (highSeverityIssues > 0) {
+                                echo "Found ${highSeverityIssues} high severity issues in static code analysis."
+                                failBuild = true
+                            } else {
+                                echo "No high severity issues found in static code analysis."
+                            }
+                        } else {
+                            echo 'bandit_report.json not found.'
                         }
-                    }
         
                     // Evaluate Safety Report
                     if (fileExists('safety_report.json')) {

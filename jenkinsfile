@@ -26,6 +26,16 @@ pipeline {
             }
         }
 
+        stage('Check Safety Installation') {
+            steps {
+                sh '''
+                    echo "Checking if 'safety' is installed..."
+                    which safety || echo "'safety' command not found."
+                    safety --version || echo "Unable to retrieve 'safety' version."
+                '''
+            }
+        }
+
         stage('Security: Static Code Analysis') {
             steps {
                 echo 'Running Static Code Analysis with Bandit...'
@@ -46,12 +56,12 @@ pipeline {
                 echo 'Running Dependency Vulnerability Scan with Safety...'
                 sh '''
                     if [ -f requirements.txt ]; then
-                        safety check -r requirements.txt --json --full-report > safety_report.json || true
+                        safety check -r requirements.txt --json --full-report > safety_report.json 2> safety_error.log || true
                     else
                         echo 'No requirements.txt found, skipping dependency scan.'
                     fi
                 '''
-                archiveArtifacts artifacts: 'safety_report.json', fingerprint: true, allowEmptyArchive: true
+                archiveArtifacts artifacts: 'safety_report.json, safety_error.log', fingerprint: true, allowEmptyArchive: true
             }
         }
 
@@ -62,11 +72,32 @@ pipeline {
             }
         }
 
+        stage('Debug: Print Safety Error Log') {
+            steps {
+                echo 'Contents of safety_error.log:'
+                sh 'cat safety_error.log || echo "safety_error.log not found or empty"'
+            }
+        }
+
+        stage('Debug: Print requirements.txt') {
+            steps {
+                echo 'Contents of requirements.txt:'
+                sh 'cat requirements.txt || echo "requirements.txt not found or empty"'
+            }
+        }
+
         stage('Security: Infrastructure Scan') {
             steps {
                 echo 'Scanning CloudFormation Template with cfn-nag...'
                 sh 'cfn_nag_scan --input-path deployment_production.yaml --output-format json > cfn_nag_report.json || true'
                 archiveArtifacts artifacts: 'cfn_nag_report.json', fingerprint: true
+            }
+        }
+
+        stage('Debug: Print cfn-nag Report') {
+            steps {
+                echo 'Contents of cfn_nag_report.json:'
+                sh 'cat cfn_nag_report.json || echo "cfn_nag_report.json not found or empty"'
             }
         }
 
@@ -97,19 +128,39 @@ pipeline {
 
                     // Evaluate Safety Report
                     if (fileExists('safety_report.json')) {
-                        def safetyReport = readJSON file: 'safety_report.json'
-                        def vulnerabilities = safetyReport.vulnerabilities ?: []
-                        if (vulnerabilities.size() > 0) {
-                            echo "Found ${vulnerabilities.size()} vulnerable dependencies."
-                            vulnerabilities.each { dep ->
-                                echo "Dependency '${dep.package_name}' version '${dep.installed_version}' has vulnerabilities:"
-                                dep.vulnerabilities.each { vuln ->
-                                    echo "- [${vuln.severity}] ${vuln.advisory} (CVE: ${vuln.cve})"
+                        def safetyReportContent = readFile file: 'safety_report.json'
+                        if (safetyReportContent?.trim()) {
+                            def safetyReport = readJSON text: safetyReportContent
+                            def vulnerabilities = safetyReport.vulnerabilities ?: []
+                            if (vulnerabilities.size() > 0) {
+                                echo "Found ${vulnerabilities.size()} vulnerabilities in dependencies."
+                                vulnerabilities.each { vuln ->
+                                    def packageName = vuln.package_name
+                                    def analyzedVersion = vuln.analyzed_version
+                                    def advisory = vuln.advisory
+                                    def cve = vuln.CVE ?: 'N/A'
+                                    def severity = 'Unknown'
+                                    if (vuln.severity) {
+                                        if (vuln.severity.cvssv3?.base_severity) {
+                                            severity = vuln.severity.cvssv3.base_severity
+                                        } else if (vuln.severity.cvssv2?.base_score) {
+                                            severity = vuln.severity.cvssv2.base_score
+                                        }
+                                    }
+                                    echo "Package: ${packageName}"
+                                    echo "Version: ${analyzedVersion}"
+                                    echo "Severity: ${severity}"
+                                    echo "CVE: ${cve}"
+                                    echo "Advisory: ${advisory}"
+                                    echo "-------------------------------------"
                                 }
+                                failBuild = true
+                            } else {
+                                echo 'No vulnerable dependencies found.'
                             }
-                            failBuild = true
                         } else {
-                            echo 'No vulnerable dependencies found.'
+                            echo 'safety_report.json is empty or invalid.'
+                            failBuild = true
                         }
                     } else {
                         echo 'safety_report.json not found.'
@@ -117,22 +168,29 @@ pipeline {
 
                     // Evaluate cfn-nag Report
                     if (fileExists('cfn_nag_report.json')) {
-                        def cfnNagReport = readJSON file: 'cfn_nag_report.json'
+                        def cfnNagReportContent = readFile file: 'cfn_nag_report.json'
+                        if (cfnNagReportContent?.trim()) {
+                            def cfnNagReport = readJSON text: cfnNagReportContent
 
-                        if (cfnNagReport.file_results) {
-                            cfnNagReport.file_results.each { fileResult ->
-                                if (fileResult.file_results && fileResult.file_results.violations) {
-                                    fileResult.file_results.violations.each { violation ->
-                                        if (violation.type == 'FAIL') {
-                                            echo "Security issues found in CloudFormation template: ${violation.id} - ${violation.message}"
-                                            failBuild = true
+                            if (cfnNagReport.file_results) {
+                                cfnNagReport.file_results.each { fileResult ->
+                                    if (fileResult.file_results && fileResult.file_results.violations) {
+                                        fileResult.file_results.violations.each { violation ->
+                                            if (violation.type == 'FAIL') {
+                                                echo "Security issues found in CloudFormation template: ${violation.id} - ${violation.message}"
+                                                failBuild = true
+                                            }
                                         }
                                     }
                                 }
+                            } else {
+                                echo 'No file_results found in cfn-nag report.'
                             }
                         } else {
-                            echo 'No file_results found in cfn-nag report.'
+                            echo 'cfn_nag_report.json is empty or invalid.'
                         }
+                    } else {
+                        echo 'cfn_nag_report.json not found.'
                     }
 
                     if (failBuild) {
@@ -143,8 +201,6 @@ pipeline {
                 }
             }
         }
-
-        // ... Rest of your stages ...
 
         stage('Build Lambda Package') {
             steps {
@@ -160,7 +216,182 @@ pipeline {
             }
         }
 
-        // ... Other stages ...
+        stage('Deploy to Lambda') {
+            steps {
+                withAWS(credentials: 'aws', region: "${AWS_DEFAULT_REGION}") {
+                    script {
+                        def aliasExists = sh(
+                            script: "aws lambda get-alias --function-name ${LAMBDA_FUNCTION_NAME} --name live",
+                            returnStatus: true
+                        ) == 0
+
+                        if (aliasExists) {
+                            echo 'Updating existing Lambda function...'
+
+                            def updateResult = sh(
+                                script: """
+                                    aws lambda update-function-code \
+                                        --function-name ${LAMBDA_FUNCTION_NAME} \
+                                        --s3-bucket ${BUCKET_NAME} \
+                                        --s3-key lambda_function.zip
+                                """,
+                                returnStatus: true
+                            )
+                            if (updateResult != 0) {
+                                error 'Failed to update Lambda function code.'
+                            } else {
+                                echo 'Lambda function code updated successfully.'
+                            }
+
+                            env.INITIAL_DEPLOYMENT = 'false'
+                        } else {
+                            echo 'Creating new Lambda function, alias, and CodeDeploy resources...'
+
+                            def deployResult = sh(
+                                script: """
+                                    aws cloudformation deploy \
+                                        --template-file deployment_production.yaml \
+                                        --stack-name lambda-blue-green-stack \
+                                        --capabilities CAPABILITY_NAMED_IAM \
+                                        --parameter-overrides \
+                                            LambdaExecutionRoleArn=${LAMBDA_EXECUTION_ROLE_ARN} \
+                                            CodeDeployServiceRoleArn=${CODEDEPLOY_SERVICE_ROLE_ARN} \
+                                            LambdaFunctionName=${LAMBDA_FUNCTION_NAME} \
+                                            CodeDeployApplicationName=${CODEDEPLOY_APPLICATION_NAME} \
+                                            DeploymentGroupName=${DEPLOYMENT_GROUP_NAME} \
+                                            S3BucketName=${BUCKET_NAME} \
+                                            S3Key=lambda_function.zip
+                                """,
+                                returnStatus: true
+                            )
+                            if (deployResult != 0) {
+                                error 'Failed to deploy CloudFormation stack.'
+                            } else {
+                                echo 'CloudFormation stack deployed successfully.'
+                            }
+
+                            env.INITIAL_DEPLOYMENT = 'true'
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Update AppSpec File') {
+            when {
+                expression {
+                    env.INITIAL_DEPLOYMENT == 'false'
+                }
+            }
+            steps {
+                // Update the appspec.yaml file with the correct CurrentVersion and TargetVersion
+                withAWS(credentials: 'aws', region: "${AWS_DEFAULT_REGION}") {
+                    script {
+                        // Retrieve the current version the alias points to
+                        def currentVersion = sh(
+                            script: "aws lambda get-alias --function-name ${LAMBDA_FUNCTION_NAME} --name live --query 'FunctionVersion' --output text",
+                            returnStdout: true
+                        ).trim()
+                        echo "Current Lambda version: ${currentVersion}"
+
+                        // Publish a new version of the Lambda function
+                        def targetVersion = sh(
+                            script: "aws lambda publish-version --function-name ${LAMBDA_FUNCTION_NAME} --query Version --output text",
+                            returnStdout: true
+                        ).trim()
+                        echo "Published new Lambda version: ${targetVersion}"
+
+                        // Update the appspec.yaml file with the retrieved versions
+                        sh """
+                            sed -i 's/{{CURRENT_VERSION}}/${currentVersion}/g' appspec.yaml
+                            sed -i 's/{{TARGET_VERSION}}/${targetVersion}/g' appspec.yaml
+                        """
+                        echo 'AppSpec file updated with current and target versions.'
+                    }
+                }
+            }
+        }
+
+        stage('Verify AppSpec File') {
+            when {
+                expression {
+                    env.INITIAL_DEPLOYMENT == 'false'
+                }
+            }
+            steps {
+                sh 'cat appspec.yaml'
+            }
+        }
+
+        stage('Repackage Lambda Function') {
+            when {
+                expression {
+                    env.INITIAL_DEPLOYMENT == 'false'
+                }
+            }
+            steps {
+                // Repackage the Lambda function with the updated appspec.yaml
+                sh 'zip -u lambda_function.zip appspec.yaml'
+            }
+        }
+
+        stage('Re-upload to S3') {
+            when {
+                expression {
+                    env.INITIAL_DEPLOYMENT == 'false'
+                }
+            }
+            steps {
+                withAWS(credentials: 'aws', region: "${AWS_DEFAULT_REGION}") {
+                    s3Upload(bucket: "${BUCKET_NAME}", path: 'lambda_function.zip', file: 'lambda_function.zip')
+                }
+            }
+        }
+
+        stage('Blue-Green Traffic Shift') {
+            steps {
+                withAWS(credentials: 'aws', region: "${AWS_DEFAULT_REGION}") {
+                    script {
+                        def deployResult = sh(
+                            script: """
+                                aws deploy create-deployment \
+                                    --application-name ${CODEDEPLOY_APPLICATION_NAME} \
+                                    --deployment-group-name ${DEPLOYMENT_GROUP_NAME} \
+                                    --deployment-config-name CodeDeployDefault.LambdaAllAtOnce \
+                                    --s3-location bucket=${BUCKET_NAME},key=lambda_function.zip,bundleType=zip
+                            """,
+                            returnStatus: true
+                        )
+                        if (deployResult != 0) {
+                            error 'Failed to create CodeDeploy deployment.'
+                        } else {
+                            echo 'CodeDeploy deployment created successfully.'
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Notify via SNS') {
+            steps {
+                withAWS(credentials: 'aws', region: "${AWS_DEFAULT_REGION}") {
+                    script {
+                        def snsResult = sh(
+                            script: """
+                                aws sns publish --topic-arn $SNS_TOPIC_ARN \
+                                --message 'Lambda function deployed successfully!'
+                            """,
+                            returnStatus: true
+                        )
+                        if (snsResult != 0) {
+                            echo 'Failed to send SNS notification.'
+                        } else {
+                            echo 'SNS notification sent successfully.'
+                        }
+                    }
+                }
+            }
+        }
 
     }
 
@@ -172,7 +403,7 @@ pipeline {
         failure {
             // Send failure notification
             echo 'Build failed. Sending notification...'
-            // Add notification logic here
+            // Add notification logic here (e.g., email, Slack, etc.)
         }
     }
 }

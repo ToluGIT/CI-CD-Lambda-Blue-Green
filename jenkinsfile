@@ -2,7 +2,6 @@ pipeline {
     agent any
 
     environment {
-        // AWS and application-specific environment variables
         IMAGE_NAME = 'lambda_function.zip'
         BUCKET_NAME = 's3-jenkins-lambda'
         LAMBDA_FUNCTION_NAME = 'blue-green-lambda'
@@ -17,7 +16,6 @@ pipeline {
     stages {
         stage('Cleanup Workspace') {
             steps {
-                // Clean the workspace to prevent old artifacts from interfering
                 deleteDir()
             }
         }
@@ -58,13 +56,6 @@ pipeline {
             }
         }
 
-        stage('Debug: Print cfn-nag Report') {
-            steps {
-                echo 'Contents of cfn_nag_report.json:'
-                sh 'cat cfn_nag_report.json || echo "cfn_nag_report.json not found or empty"'
-            }
-        }
-
         stage('Security: Evaluate Reports') {
             steps {
                 script {
@@ -92,7 +83,7 @@ pipeline {
                     if (fileExists('cfn_nag_report.json')) {
                         def cfnNagReport = readJSON file: 'cfn_nag_report.json'
 
-                        // Adjust the code to match the actual structure of cfnNagReport
+                        // Adjust the code to match the structure of cfnNagReport
                         if (cfnNagReport.file_results) {
                             cfnNagReport.file_results.each { fileResult ->
                                 if (fileResult.file_results && fileResult.file_results.violations) {
@@ -120,21 +111,12 @@ pipeline {
 
         stage('Build Lambda Package') {
             steps {
-                // Package the Lambda function code and appspec.yaml into a zip file
                 sh 'zip lambda_function.zip lambda_function.py appspec.yaml'
-            }
-        }
-
-        stage('Verify Zip Contents') {
-            steps {
-                // List the contents of the zip file to verify inclusion of all necessary files
-                sh 'unzip -l lambda_function.zip'
             }
         }
 
         stage('Upload to S3') {
             steps {
-                // Upload the zip file to S3
                 withAWS(credentials: 'aws', region: "${AWS_DEFAULT_REGION}") {
                     s3Upload(bucket: "${BUCKET_NAME}", path: 'lambda_function.zip', file: 'lambda_function.zip')
                 }
@@ -143,7 +125,6 @@ pipeline {
 
         stage('Deploy to Lambda') {
             steps {
-                // Deploy the Lambda function and update the alias
                 withAWS(credentials: 'aws', region: "${AWS_DEFAULT_REGION}") {
                     script {
                         def aliasExists = sh(
@@ -154,7 +135,6 @@ pipeline {
                         if (aliasExists) {
                             echo 'Updating existing Lambda function...'
 
-                            // Update the Lambda function code from S3
                             def updateResult = sh(
                                 script: """
                                     aws lambda update-function-code \
@@ -174,7 +154,6 @@ pipeline {
                         } else {
                             echo 'Creating new Lambda function, alias, and CodeDeploy resources...'
 
-                            // Deploy the CloudFormation stack to create the necessary resources
                             def deployResult = sh(
                                 script: """
                                     aws cloudformation deploy \
@@ -205,7 +184,7 @@ pipeline {
             }
         }
 
-        // Conditionally execute the following stages only if it's not the initial deployment
+        //  execute the following stages only if it's not the initial deployment
         stage('Update AppSpec File') {
             when {
                 expression {
@@ -230,7 +209,7 @@ pipeline {
                         ).trim()
                         echo "Published new Lambda version: ${targetVersion}"
 
-                        // DO NOT update the alias here; let CodeDeploy handle it
+                        // Don't  update the alias here; let CodeDeploy handle it
                         // Update the appspec.yaml file with the retrieved versions
                         sh """
                             sed -i 's/{{CURRENT_VERSION}}/${currentVersion}/g' appspec.yaml
@@ -249,7 +228,6 @@ pipeline {
                 }
             }
             steps {
-                // Output the contents of the updated appspec.yaml for verification
                 sh 'cat appspec.yaml'
             }
         }
@@ -273,7 +251,6 @@ pipeline {
                 }
             }
             steps {
-                // Re-upload the updated zip file to S3
                 withAWS(credentials: 'aws', region: "${AWS_DEFAULT_REGION}") {
                     s3Upload(bucket: "${BUCKET_NAME}", path: 'lambda_function.zip', file: 'lambda_function.zip')
                 }
@@ -282,7 +259,6 @@ pipeline {
 
         stage('Blue-Green Traffic Shift') {
             steps {
-                // Initiate the CodeDeploy deployment to perform the traffic shift
                 withAWS(credentials: 'aws', region: "${AWS_DEFAULT_REGION}") {
                     script {
                         def deployResult = sh(
@@ -307,7 +283,6 @@ pipeline {
 
         stage('Notify via SNS') {
             steps {
-                // Send a notification via SNS upon successful deployment
                 withAWS(credentials: 'aws', region: "${AWS_DEFAULT_REGION}") {
                     script {
                         def snsResult = sh(
@@ -327,12 +302,6 @@ pipeline {
             }
         }
 
-        // Optional: Add Slack notification stage if Slack integration is required
-        // stage('Notify via Slack') {
-        //     steps {
-        //         slackSend(channel: '#deployments', message: 'Lambda function deployed successfully!')
-        //     }
-        // }
     }
 
     post {

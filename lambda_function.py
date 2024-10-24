@@ -1,11 +1,11 @@
-import random
+import subprocess
 
 def lambda_handler(event, context):
-    # Insecure random number generation
-    token = random.random()
-    print("Generated insecure token:", token)
-    
+    # Insecure use of subprocess with shell=True
+    command = event.get('command', 'ls -la')
+    subprocess.call(command, shell=True)
+
     return {
         'statusCode': 200,
-        'body': 'Function executed successfully!'
+        'body': 'Command executed successfully! meant to fail'
     }

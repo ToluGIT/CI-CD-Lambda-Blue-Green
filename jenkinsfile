@@ -55,6 +55,13 @@ pipeline {
                 archiveArtifacts artifacts: 'cfn_nag_report.json', fingerprint: true
             }
         }
+        stage('Debug: Print Safety Report') {
+            steps {
+                echo 'Contents of safety_report.json:'
+                sh 'cat safety_report.json || echo "safety_report.json not found or empty"'
+            }
+        }
+
         stage('Security: Evaluate Reports') {
             steps {
                 script {
@@ -83,10 +90,15 @@ pipeline {
                     // Evaluate Safety Report
                     if (fileExists('safety_report.json')) {
                         def safetyReport = readJSON file: 'safety_report.json'
-                        if (safetyReport.issues.size() > 0) {
-                            echo 'Vulnerable dependencies found.'
+                        def vulnerabilities = safetyReport.vulnerabilities ?: []
+                        if (vulnerabilities.size() > 0) {
+                            echo "Found ${vulnerabilities.size()} vulnerable dependencies."
                             failBuild = true
+                        } else {
+                            echo 'No vulnerable dependencies found.'
                         }
+                    } else {
+                        echo 'safety_report.json not found.'
                     }
         
                     // Evaluate cfn-nag Report

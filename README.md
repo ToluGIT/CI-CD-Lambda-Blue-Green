@@ -25,7 +25,8 @@ This project demonstrates how to set up a CI/CD pipeline using Jenkins to deploy
 ## Project Structure
      
       ├── Jenkinsfile                      # Jenkins pipeline definition
-      ├── deployment_production.yaml       # CloudFormation template for AWS resources
+      ├── deployment_production_initial.yaml       # CloudFormation template for AWS resources for fresh deployment
+      ├── deployment_production.yaml       # CloudFormation template for AWS resources for update of existing deployment
       ├── lambda_function.py               # Lambda function code
       ├── appspec.yaml                     # Deployment instructions for AWS CodeDeploy
       └── README.md                        # Project documentation
@@ -71,8 +72,8 @@ This project demonstrates how to set up a CI/CD pipeline using Jenkins to deploy
    Security Enhancements
     
  This project incorporates DevSecOps practices by integrating security checks into the CI/CD pipeline to ensure that only secure and compliant code is deployed.
-    
-  ### **1\. Static Code Analysis with Bandit**
+ 
+### **1\. Static Code Analysis with Bandit**
 
   *   **Tool Used:** [Bandit](https://bandit.readthedocs.io/en/latest/)
   *   **Purpose:** Scans the Python code (`lambda_function.py`) for security issues like hardcoded credentials, weak cryptography, and injection vulnerabilities.
@@ -93,22 +94,22 @@ This project demonstrates how to set up a CI/CD pipeline using Jenkins to deploy
  *   **Integration:** Added as a pipeline stage called **"Security: Evaluate Reports"**.
  *   **Behavior:** If critical vulnerabilities are found, the pipeline fails to prevent insecure code from being deployed.
 
-  ### **4\. Credentials and Secrets Management**
+### **4\. Credentials and Secrets Management**
   
   *   **AWS Credentials:** Stored securely in Jenkins using the **Credentials Plugin**.
   *   **Access Keys and Secrets:** Managed through Jenkins credentials and injected into the pipeline as environment variables.
 
-  ### **5\. IAM Roles and Permissions**
+### **5\. IAM Roles and Permissions**
     
  *   **Principle of Least Privilege:** IAM roles (`LambdaExecutionRole` and `CodeDeployServiceRole`) are configured with minimal required permissions.
  *   **Policy Validation:** IAM policies are reviewed to ensure they do not grant excessive permissions.
     
-  ### **6\. Secure Storage and Transmission**
+### **6\. Secure Storage and Transmission**
     
   *   **S3 Bucket Security:** The S3 bucket used for storing the Lambda package is secured with proper access controls and encryption at rest.
   *   **Encryption:** Data in transit is secured using HTTPS when uploading to S3.
-    
-  ### **7\. Logging and Monitoring**
+
+### **7\. Logging and Monitoring**
     
    *   **Pipeline Logs:** Jenkins pipeline logs are maintained for audit purposes.
    *   **AWS CloudWatch:** Used for monitoring Lambda function execution and logging.
@@ -117,7 +118,7 @@ This project demonstrates how to set up a CI/CD pipeline using Jenkins to deploy
 1.  Setup Instructions
     ------------------
     
-    ### 1\. Clone the Repository
+### 1\. Clone the Repository
    
         .git clone https://github.com/YourUsername/YourRepository.git
          cd YourRepository
@@ -128,7 +129,7 @@ Ensure that the following security tools are installed on the Jenkins agent mach
   * Bandit
   * cfn-nag
 -----
-   ### 3\. Configure AWS Resources
+### 3\. Configure AWS Resources
 
 #### Create IAM Roles
 
@@ -147,11 +148,11 @@ Ensure that the following security tools are installed on the Jenkins agent mach
     ###  Create an S3 Bucket
    
         aws s3 mb s3://s3-jenkins-lambda
-    --- 
-   ### 4\. Prepare the Lambda Function Package
+    ---
+#### 4\. Prepare the Lambda Function Package
      zip lambda_function.zip lambda_function.py appspec.yaml
 
-   ### 5\. Deploy the CloudFormation Stack
+### 5\. Deploy the CloudFormation Stack  (This has been added as a "when" condition in the pipeline - no manual deployment)
      aws cloudformation deploy \
      --template-file deployment_production.yaml \
      --stack-name lambda-blue-green-stack \

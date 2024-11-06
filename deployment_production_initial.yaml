@@ -1,0 +1,46 @@
+Resources:
+  CodeDeployApplication:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ApplicationName: blue-green-lambda
+      ComputePlatform: Lambda
+
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: blue-green-lambda
+      Handler: lambda_function.lambda_handler
+      Role: YOUR_ACCOUNT_ID:role/LambdaExecutionRole 
+      Runtime: python3.8
+      Timeout: 15
+      MemorySize: 128
+      Code:
+        S3Bucket: s3-jenkins-lambda
+        S3Key: lambda_function.zip
+
+  LambdaVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName: !Ref LambdaFunction
+
+  LambdaAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      Name: live
+      FunctionName: !Ref LambdaFunction
+      FunctionVersion: !GetAtt LambdaVersion.Version
+
+  CodeDeployDeploymentGroup:
+    Type: AWS::CodeDeploy::DeploymentGroup
+    Properties:
+      ApplicationName: !Ref CodeDeployApplication
+      DeploymentGroupName: blue-green-deployment-group
+      ServiceRoleArn: YOUR_ACCOUNT_ID:role/CodeDeployServiceRole 
+      DeploymentConfigName: CodeDeployDefault.LambdaAllAtOnce
+      DeploymentStyle:
+        DeploymentType: BLUE_GREEN
+        DeploymentOption: WITH_TRAFFIC_CONTROL
+      AutoRollbackConfiguration:
+        Enabled: true
+        Events:
+          - DEPLOYMENT_FAILURE

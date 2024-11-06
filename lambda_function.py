@@ -3,5 +3,5 @@ import json
 def lambda_handler(event, context):
     return {
         'statusCode': 200,
-        'body': json.dumps('Hello from the new version of Lambda!')
+        'body': json.dumps('Blue-green deployment update successful - v2')
     }

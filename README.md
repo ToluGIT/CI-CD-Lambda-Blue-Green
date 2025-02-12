@@ -249,15 +249,12 @@ Ensure that the following security tools are installed on the Jenkins agent mach
 
 ---
 
-* * *
 
 ## Conclusion
 
 By integrating security checks directly into the CI/CD pipeline, this project not only ensures seamless and reliable deployments but also promotes a security-first mindset throughout the development process. We have demonstrated how tools like **Bandit** and **cfn-nag** can be effectively used to identify and mitigate potential security risks before they reach production.
 
 Building on AWS services and Jenkins, this project showcases a practical approach to implementing DevSecOps principles in a serverless application environment. It emphasizes the importance of automating security tasks to enhance efficiency without compromising on safety.
-
-I hope this project serves as a valuable resource for you to build your own secure CI/CD pipelines. Your feedback and contributions are welcome!
 
 If you have any questions, suggestions, or need further assistance, please feel free to reach out. 
 

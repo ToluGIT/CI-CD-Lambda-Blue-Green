@@ -261,18 +261,3 @@ I hope this project serves as a valuable resource for you to build your own secu
 
 If you have any questions, suggestions, or need further assistance, please feel free to reach out. 
 
-
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-References
-----------
-
-### 
-
-*   [AWS Lambda Documentation](https://docs.aws.amazon.com/lambda/)
-*   [AWS CodeDeploy Documentation](https://docs.aws.amazon.com/codedeploy/)
-*   [AWS CloudFormation Documentation](https://docs.aws.amazon.com/cloudformation/)
-*   [Jenkins Documentation](https://www.jenkins.io/doc/)
-*   [Blue-Green Deployments with CodeDeploy](https://docs.aws.amazon.com/codedeploy/latest/userguide/deployments-create-advanced-blue-green.html)
-*   [Bandit Documentation](https://bandit.readthedocs.io/en/latest/)
-*   [cfn-nag Documentation](https://github.com/stelligent/cfn_nag)

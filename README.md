@@ -1,6 +1,6 @@
-# AWS Lambda Deployment with Blue-Green Deployment using Jenkins and AWS CodeDeploy
+# AWS Lambda Deployment using Jenkins and AWS CodeDeploy
 
-This project demonstrates how to set up a CI/CD pipeline using Jenkins to deploy an AWS Lambda function with blue-green deployment managed by AWS CodeDeploy. The pipeline automates the process of packaging, uploading, and deploying the Lambda function, ensuring zero downtime and seamless updates. It integrates with multiple AWS services such as **S3, Lambda, CloudFormation, CodeDeploy, and SNS**; focus on static code analysis with **Bandit** and infrastructure scanning with **cfn-nag** and sends notifications upon successful deployment.
+This project demonstrates how to set up a CI/CD pipeline using Jenkins to deploy an AWS Lambda function with an All-at-once deployment strategy managed by AWS CodeDeploy. The pipeline automates the process of packaging, uploading, and deploying the Lambda function, ensuring zero downtime and seamless updates. It integrates with multiple AWS services such as **S3, Lambda, CloudFormation, CodeDeploy, and SNS**; focus on static code analysis with **Bandit** and infrastructure scanning with **cfn-nag** and sends notifications upon successful deployment.
 
 ---
 
@@ -61,7 +61,7 @@ This project demonstrates how to set up a CI/CD pipeline using Jenkins to deploy
 7.  **Update AppSpec File**
     
     *   The **`appspec.yaml`** file is updated with the **current and target Lambda function versions**.
-8.  **Blue-Green Deployment**
+8.  **All-at-once deployment**
     
     *   Traffic is **shifted to the new version** using CodeDeploy.
     *   If an issue occurs, traffic can quickly **roll back** to the previous version.
